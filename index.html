@@ -151,7 +151,7 @@
     font-family: var(--font-mono); font-size: .82rem;
     padding: 8px 12px; border-radius: 4px;
     outline: none; transition: border-color .2s;
-    -moz-appearance: textfield;
+    appearance: textfield;
   }
   input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; }
   input:focus, select:focus { border-color: var(--accent); }
@@ -415,9 +415,27 @@
           <button class="btn purple" onclick="runMST('prim')">Prim's</button>
           <button class="btn" onclick="runMST('kruskal')">Kruskal's</button>
         </div>
-        <button class="btn warn" onclick="runMSTCompare()">⚡ Compare Both</button>
-        <div class="sep"></div>
+        <button class="btn warn" onclick="runMSTCompare()">Compare Both</button>
         <div id="mst-result"></div>
+        <div class="sep"></div>
+        <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">MST vs Dijkstra Path</div>
+        <div>
+          <span class="field-label">Filter</span>
+          <select id="mvd-filter">
+            <option value="1">Latency (ms)</option>
+            <option value="2">Cost (USD)</option>
+          </select>
+        </div>
+        <div>
+          <span class="field-label">Source Node</span>
+          <div class="select-list" id="mvd-from-list"></div>
+        </div>
+        <div>
+          <span class="field-label">Destination Node</span>
+          <div class="select-list" id="mvd-to-list"></div>
+        </div>
+        <button class="btn warn" onclick="runMSTvsDijkstra()">MST vs Dijkstra</button>
+        <div id="mvd-result"></div>
       </div>
 
       <!-- GRAPH EDIT -->
@@ -564,6 +582,7 @@ let svgEl, gEl, zoomBehavior;
 let showLabels = true;
 const EMBEDDED_DATA = { nodes: [], links: [] };
 let selectedFrom = null, selectedTo = null, selectedSrc = null;
+let selectedMvdFrom = null, selectedMvdTo = null;
 let highlightedLinks = [], highlightedNodes = [];
 
 // ================================================================
@@ -795,8 +814,9 @@ function toggleLabels() {
 
 function clearHighlights() {
   d3.selectAll('.link').classed('mst-edge', false).classed('path-edge', false)
-    .attr('stroke', null).attr('stroke-width', null).attr('opacity', null);
-  d3.selectAll('.node circle').style('fill', '').style('stroke', '');
+    .attr('stroke', null).attr('stroke-width', null).attr('opacity', null)
+    .style('stroke', null).style('stroke-width', null).style('opacity', null);
+  d3.selectAll('.node circle').style('fill', '').style('stroke', '').style('stroke-width', '');
 }
 
 // Highlight edges by node-id pairs
@@ -831,7 +851,7 @@ function highlightMSTEdges(edgePairs) {
 // NODE LISTS
 // ================================================================
 function buildNodeLists() {
-  ['sp-from-list', 'sp-to-list', 'dij-src-list'].forEach(id => {
+  ['sp-from-list', 'sp-to-list', 'dij-src-list', 'mvd-from-list', 'mvd-to-list'].forEach(id => {
     const el = document.getElementById(id);
     el.innerHTML = '';
     graphData.nodes.forEach(n => {
@@ -855,6 +875,8 @@ function selectNode(listId, nodeId, el) {
   if (listId === 'sp-from-list') selectedFrom = nodeId;
   else if (listId === 'sp-to-list') selectedTo = nodeId;
   else if (listId === 'dij-src-list') selectedSrc = nodeId;
+  else if (listId === 'mvd-from-list') selectedMvdFrom = nodeId;
+  else if (listId === 'mvd-to-list') selectedMvdTo = nodeId;
 }
 
 function renderDirectory(filter) {
@@ -928,6 +950,100 @@ function extractPathIDs(output) {
 }
 
 // ================================================================
+// CLIENT-SIDE DIJKSTRA FOR MST
+// ================================================================
+function dijkstraOnMST(mstLinks, source, target, filter) {
+  // Build adjacency list for MST
+  const graph = {};
+  mstLinks.forEach(link => {
+    const s = link.source?.id ?? link.source;
+    const t = link.target?.id ?? link.target;
+    const weight = filter === 1 ? link.latency_ms : link.cost_usd;
+    
+    // Convert to string for consistent key handling
+    const sKey = String(s);
+    const tKey = String(t);
+    
+    if (!graph[sKey]) graph[sKey] = [];
+    if (!graph[tKey]) graph[tKey] = [];
+    graph[sKey].push({ node: tKey, weight });
+    graph[tKey].push({ node: sKey, weight });
+  });
+
+  // Convert source and target to strings
+  const sourceKey = String(source);
+  const targetKey = String(target);
+
+  // Dijkstra's algorithm
+  const distances = {};
+  const previous = {};
+  const unvisited = new Set();
+  
+  // Initialize
+  Object.keys(graph).forEach(node => {
+    distances[node] = node === sourceKey ? 0 : Infinity;
+    previous[node] = null;
+    unvisited.add(node);
+  });
+
+  while (unvisited.size > 0) {
+    // Find unvisited node with minimum distance
+    let current = null;
+    let minDist = Infinity;
+    unvisited.forEach(node => {
+      if (distances[node] < minDist) {
+        current = node;
+        minDist = distances[node];
+      }
+    });
+
+    if (current === null || current === targetKey) break;
+    
+    unvisited.delete(current);
+
+    // Update distances to neighbors
+    graph[current].forEach(neighbor => {
+      if (unvisited.has(neighbor.node)) {
+        const alt = distances[current] + neighbor.weight;
+        if (alt < distances[neighbor.node]) {
+          distances[neighbor.node] = alt;
+          previous[neighbor.node] = current;
+        }
+      }
+    });
+  }
+
+  // Reconstruct path
+  const path = [];
+  let current = targetKey;
+  while (current !== null) {
+    path.unshift(Number(current)); // Convert back to number
+    current = previous[current];
+  }
+
+  if (path[0] !== source || distances[targetKey] === Infinity) {
+    return { success: false, path: [], distance: Infinity, hops: 0 };
+  }
+
+  return { 
+    success: true, 
+    path, 
+    distance: distances[targetKey], 
+    hops: path.length - 1 
+  };
+}
+
+// ================================================================
+// HIGHLIGHT HELPER
+// ================================================================
+function highlightPathFromOutput(out) {
+  const pathIds = extractPathIDs(out);
+  if (pathIds.length > 0) {
+    highlightPath(pathIds, 'path-edge');
+  }
+}
+
+// ================================================================
 // SHORTEST PATH
 // ================================================================
 async function runShortestPath() {
@@ -949,11 +1065,11 @@ async function runShortestPath() {
     }
 
     const out = res.output || '';
-    // Build path display
+    // Build path display and highlight path
+    highlightPathFromOutput(out);
     const pathIds = extractPathIDs(out);
     let pathHtml = '';
     if (pathIds.length > 0) {
-      highlightPath(pathIds, 'path-edge');
       pathHtml = '<div class="path-display">' +
         pathIds.map((id, i) =>
           `<span class="path-node">[${id}] ${graphData.nodes.find(n=>n.id===id)?.location||id}</span>` +
@@ -1022,7 +1138,10 @@ async function runMST(algo) {
     while ((m = re.exec(out)) !== null) {
       edgePairs.push([+m[1], +m[2]]);
     }
-    if (edgePairs.length > 0) highlightMSTEdges(edgePairs);
+    if (edgePairs.length > 0) {
+      clearHighlights();
+      highlightMSTEdges(edgePairs);
+    }
 
     const totalMatch = out.match(/total MST [\w ]+: [\$]?([\d]+)/);
     const label = algo === 'prim' ? "Prim's" : "Kruskal's";
@@ -1039,6 +1158,7 @@ async function runMST(algo) {
 
 async function runMSTCompare() {
   const filter = +document.getElementById('mst-filter').value;
+  clearHighlights(); // Clear any previous highlights
   try {
     const [primRes, kruskalRes] = await Promise.all([
       api('/mst/prim', { filter }),
@@ -1079,6 +1199,179 @@ async function runMSTCompare() {
     log(`<span class="warn">MST COMPARE</span> filter=${filter==1?'latency':'cost'}`);
   } catch {
     document.getElementById('mst-result').innerHTML = '<div class="alert danger">Cannot reach server.</div>';
+  }
+}
+
+async function runMSTvsDijkstra() {
+  const filter = +document.getElementById('mvd-filter').value;
+  if (selectedMvdFrom === null || selectedMvdTo === null) {
+    document.getElementById('mvd-result').innerHTML = '<div class="alert danger">Select source and destination.</div>';
+    return;
+  }
+  if (selectedMvdFrom === selectedMvdTo) {
+    document.getElementById('mvd-result').innerHTML = '<div class="alert danger">Source and destination must differ.</div>';
+    return;
+  }
+  document.getElementById('mvd-result').innerHTML = '<div><span class="spinner"></span>Running...</div>';
+  
+  try {
+    // Step 1: Get MST using existing runMST pattern
+    const mstRes = await api('/mst/prim', { filter: +document.getElementById('mvd-filter').value });
+    if (!mstRes.success) {
+      document.getElementById('mvd-result').innerHTML = `<div class="alert danger">${mstRes.error}</div>`;
+      return;
+    }
+    const mstOut = mstRes.output || '';
+
+    // Step 2: Get full graph Dijkstra path using existing runShortestPath pattern
+    const spRes = await api('/shortest-path', { from: selectedMvdFrom, to: selectedMvdTo, filter: +document.getElementById('mvd-filter').value });
+    if (!spRes.success) {
+      document.getElementById('mvd-result').innerHTML = `<div class="alert danger">${spRes.error}</div>`;
+      return;
+    }
+    const spOut = spRes.output || '';
+
+    // Step 3: Parse MST edges like runMST() does
+    const edgePairs = [];
+    const re = /\[(\d+)\] <--> \[(\d+)\]/g;
+    let m;
+    while ((m = re.exec(mstOut)) !== null) {
+      edgePairs.push([+m[1], +m[2]]);
+    }
+
+    // Step 4: Create MST subgraph and run Dijkstra on it
+    const mstLinks = graphData.links.filter(l => {
+      const s = l.source?.id ?? l.source;
+      const t = l.target?.id ?? l.target;
+      return edgePairs.some(([a, b]) => (s === a && t === b) || (s === b && t === a));
+    });
+
+    // Step 5: Run Dijkstra on MST subgraph using client-side algorithm
+    const mstResult = dijkstraOnMST(mstLinks, selectedMvdFrom, selectedMvdTo, +document.getElementById('mvd-filter').value);
+    
+    let mstSpOut = '';
+    let mstSpRes = { success: false };
+    
+    if (mstResult.success) {
+      // Create output string in same format as server API
+      const pathNames = mstResult.path.map(id => {
+        const node = graphData.nodes.find(n => n.id === id);
+        return node ? node.location : id;
+      });
+      
+      const pathStr = pathNames.join(' -> ');
+      const filterLabel = +document.getElementById('mvd-filter').value === 1 ? 'latency' : 'cost';
+      const unit = +document.getElementById('mvd-filter').value === 1 ? 'ms' : 'USD';
+      const value = +document.getElementById('mvd-filter').value === 1 ? mstResult.distance : mstResult.distance;
+      
+      mstSpOut = `path: ${pathStr}\nhops: ${mstResult.hops}\ntotal ${filterLabel}: ${value}${unit}`;
+      mstSpRes = { success: true, output: mstSpOut };
+    } else {
+      mstSpOut = 'No path found in MST';
+      mstSpRes = { success: false, output: mstSpOut };
+    }
+
+    // Step 6: Parse all outputs like existing functions
+    const spPathMatch  = spOut.match(/path:\s*(.+)/);
+    const spHopsMatch  = spOut.match(/hops:\s*(\d+)/);
+    const spTotalMatch = spOut.match(/total [\w ]+:\s*[\$]?([\d]+)/);
+    const mstTotalMatch = mstOut.match(/total MST [\w ]+:\s*[\$]?([\d]+)/);
+
+    const mstSpPathMatch  = mstSpOut.match(/path:\s*(.+)/);
+    const mstSpHopsMatch  = mstSpOut.match(/hops:\s*(\d+)/);
+    const mstSpTotalMatch = mstSpOut.match(/total [\w ]+:\s*[\$]?([\d]+)/);
+
+    const filterLabel = +document.getElementById('mvd-filter').value === 1 ? 'latency' : 'cost';
+    const unit        = +document.getElementById('mvd-filter').value === 1 ? ' ms' : ' USD';
+
+    // Step 7: Build output sections like existing functions
+    let fullGraphSection = '';
+    if (spPathMatch) {
+      const nodes   = spPathMatch[1].split(' -> ');
+      const pathHtml = nodes.map(n => `<span class="path-node">${n.trim()}</span>`).join('<span class="path-arrow"> -> </span>');
+      fullGraphSection = `
+        <div style="margin-bottom:4px;font-size:.68rem;color:var(--accent);text-transform:uppercase;letter-spacing:1px;">Full Graph Dijkstra Path</div>
+        <div class="path-display" style="margin-bottom:6px">${pathHtml}</div>
+        <div style="font-size:.72rem;color:var(--muted)">
+          Hops: <span style="color:var(--text)">${spHopsMatch ? spHopsMatch[1] : '---'}</span>
+          &nbsp;|&nbsp;
+          ${filterLabel.charAt(0).toUpperCase()+filterLabel.slice(1)}: <span style="color:var(--accent)">${spTotalMatch ? spTotalMatch[1] + unit : '---'}</span>
+        </div>
+      `;
+    } else {
+      fullGraphSection = `<div class="alert danger">No Dijkstra path found in full graph.</div>`;
+    }
+
+    let mstDijkstraSection = '';
+    if (mstSpRes.success && mstSpPathMatch) {
+      const nodes   = mstSpPathMatch[1].split(' -> ');
+      const pathHtml = nodes.map(n => `<span class="path-node">${n.trim()}</span>`).join('<span class="path-arrow"> -> </span>');
+      mstDijkstraSection = `
+        <div style="margin-top:10px;margin-bottom:4px;font-size:.68rem;color:var(--accent3);text-transform:uppercase;letter-spacing:1px;">MST Graph Dijkstra Path</div>
+        <div class="path-display" style="margin-bottom:6px; border-color: rgba(16,185,129,.25); background: rgba(16,185,129,.03)">${pathHtml}</div>
+        <div style="font-size:.72rem;color:var(--muted)">
+          Hops: <span style="color:var(--text)">${mstSpHopsMatch ? mstSpHopsMatch[1] : '---'}</span>
+          &nbsp;|&nbsp;
+          ${filterLabel.charAt(0).toUpperCase()+filterLabel.slice(1)}: <span style="color:var(--accent3)">${mstSpTotalMatch ? mstSpTotalMatch[1] + unit : '---'}</span>
+        </div>
+      `;
+    } else {
+      mstDijkstraSection = `<div class="alert danger" style="margin-top:10px">No Dijkstra path found in MST graph.</div>`;
+    }
+
+    let mstInfoSection = '';
+    if (mstTotalMatch) {
+      mstInfoSection = `
+        <div style="margin-top:10px;margin-bottom:4px;font-size:.68rem;color:var(--accent2);text-transform:uppercase;letter-spacing:1px;">MST Backbone - Prim's</div>
+        <div class="alert success" style="margin-bottom:4px;">MST Total ${filterLabel}: ${mstTotalMatch[1]}${unit}</div>
+        <div style="font-size:.72rem;color:var(--muted)">MST is the minimum spanning backbone - the direct shortest path between two nodes may use edges outside the MST.</div>
+      `;
+    }
+
+    document.getElementById('mvd-result').innerHTML =
+      `<div class="sep" style="margin:8px 0"></div>${fullGraphSection}${mstDijkstraSection}${mstInfoSection}`;
+
+    // Step 8: Highlight paths like existing functions
+    clearHighlights();
+    
+    // Clear any existing MST edge highlights that might be showing
+    d3.selectAll('.link').classed('mst-edge', false);
+    
+    // Highlight full graph path
+    if (spPathMatch) {
+      highlightPathFromOutput(spOut);
+    }
+
+    // Highlight MST path with different color
+    if (mstResult.success && mstResult.path.length > 0) {
+      const mstPathIds = mstResult.path;
+      for (let i = 0; i < mstPathIds.length - 1; i++) {
+        const a = mstPathIds[i], b = mstPathIds[i + 1];
+        d3.selectAll('.link').filter(function() {
+          const s = +this.getAttribute('data-source');
+          const t = +this.getAttribute('data-target');
+          return (s === a && t === b) || (s === b && t === a);
+        }).style('stroke', 'var(--accent3)').style('stroke-width', '4px').style('opacity', '1');
+      }
+      mstPathIds.forEach(id => {
+        const c = document.querySelector(`.node[data-id="${id}"] circle`);
+        if (c) { 
+          c.style.stroke = 'var(--accent3)';
+          c.style.strokeWidth = '3px';
+          c.style.fill = 'rgba(16,185,129,.25)';
+        }
+      });
+    }
+
+    // Step 9: Log results like existing functions
+    log(`<span class="warn">MST vs DIJKSTRA</span> [${selectedMvdFrom}]->[${selectedMvdTo}] filter=${filterLabel}`);
+    log(parseOutput(spOut));
+    if (mstSpRes.success) {
+      log(`<span class="ok">MST DIJKSTRA</span> [${selectedMvdFrom}]->[${selectedMvdTo}] filter=${filterLabel}`);
+      log(parseOutput(mstSpOut));
+    }
+  } catch {
+    document.getElementById('mvd-result').innerHTML = '<div class="alert danger">Cannot reach server.</div>';
   }
 }
 

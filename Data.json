@@ -35,7 +35,6 @@
     {
       "id": 8,
       "location": "São Paulo, Brazil"
-
     },
     {
       "id": 9,
@@ -124,7 +123,6 @@
     {
       "id": 45,
       "location": "nashik, maharashtra"
-
     }
   ],
   "links": [
@@ -220,7 +218,6 @@
     },
     {
       "source": 3,
-
       "target": 9,
       "latency_ms": 112,
       "cost_usd": 3360000000
@@ -434,7 +431,6 @@
       "target": 5,
       "latency_ms": 22,
       "cost_usd": 3333455
-
     }
   ]
 }
