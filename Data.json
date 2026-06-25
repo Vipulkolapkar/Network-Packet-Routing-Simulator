@@ -119,10 +119,6 @@
     {
       "id": 29,
       "location": "Melbourne, Australia"
-    },
-    {
-      "id": 45,
-      "location": "nashik, maharashtra"
     }
   ],
   "links": [
@@ -209,12 +205,6 @@
       "target": 18,
       "latency_ms": 24,
       "cost_usd": 72000000
-    },
-    {
-      "source": 2,
-      "target": 19,
-      "latency_ms": 18,
-      "cost_usd": 54000000
     },
     {
       "source": 3,
@@ -431,6 +421,12 @@
       "target": 5,
       "latency_ms": 22,
       "cost_usd": 3333455
+    },
+    {
+      "source": 2,
+      "target": 19,
+      "latency_ms": 22,
+      "cost_usd": 434343
     }
   ]
 }

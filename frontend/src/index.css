@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    /* Grid noise texture from existing site */
+    background-image:
+      radial-gradient(ellipse 80% 60% at 10% 20%, rgba(0,229,255,.04) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 80% at 90% 80%, rgba(124,58,237,.05) 0%, transparent 60%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    @apply bg-panel/80 backdrop-blur-md border border-border;
+  }
+  
+  .btn-primary {
+    @apply w-full p-2.5 border border-accent bg-accent/5 text-accent uppercase tracking-wider
+           relative overflow-hidden transition-all duration-300 hover:text-black z-10;
+  }
+  .btn-primary::after {
+    @apply content-[''] absolute inset-0 bg-accent transform -translate-x-[101%] transition-transform duration-300 -z-10;
+  }
+  .btn-primary:hover::after {
+    @apply translate-x-0;
+  }
+
+  .btn-purple {
+    @apply border-accent2 bg-accent2/5 text-accent2;
+  }
+  .btn-purple::after {
+    @apply bg-accent2;
+  }
+
+  .btn-green {
+    @apply border-accent3 bg-accent3/5 text-accent3;
+  }
+  .btn-green::after {
+    @apply bg-accent3;
+  }
+
+  .btn-danger {
+    @apply border-danger bg-danger/5 text-danger;
+  }
+  .btn-danger::after {
+    @apply bg-danger;
+  }
+
+  .btn-warn {
+    @apply border-warn bg-warn/5 text-warn;
+  }
+  .btn-warn::after {
+    @apply bg-warn;
+  }
+}
